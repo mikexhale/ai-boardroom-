@@ -38,24 +38,22 @@ export async function callOpenRouter(
   }
 
   try {
-    const requestBody = {
-      model,
-      messages,
-      max_tokens: maxTokens,
-      temperature: 0.7,
-      top_p: 0.9,
-      stream: false
-    };
-    
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': process.env.NEXT_PUBLIC_SITE_URL || 'https://ai-boardroom.netlify.app',
+        'HTTP-Referer': process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000',
         'X-Title': 'AI Boardroom'
       },
-      body: JSON.stringify(requestBody)
+      body: JSON.stringify({
+        model,
+        messages,
+        max_tokens: maxTokens,
+        temperature: 0.7,
+        top_p: 0.9,
+        stream: false
+      })
     });
 
     if (!response.ok) {
