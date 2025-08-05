@@ -25,34 +25,37 @@ export async function callOpenRouter(
   const apiKey = process.env.OPENROUTER_API_KEY;
   
   if (!apiKey) {
+    console.error('OpenRouter API key not found in environment variables');
     throw new Error('OpenRouter API key not configured');
   }
 
   // Default model - fast and cost-effective
-  let model = 'anthropic/claude-3.5-haiku:beta';
+  let model = 'anthropic/claude-3-haiku';
   
   // Use more sophisticated models for specific experts if needed
   if (expertId === 'jessica-williams') {
-    model = 'anthropic/claude-3.5-sonnet:beta'; // Better for creative/design work
+    model = 'anthropic/claude-3-5-sonnet'; // Better for creative/design work
   }
 
   try {
+    const requestBody = {
+      model,
+      messages,
+      max_tokens: maxTokens,
+      temperature: 0.7,
+      top_p: 0.9,
+      stream: false
+    };
+    
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000',
+        'HTTP-Referer': process.env.NEXT_PUBLIC_SITE_URL || 'https://ai-boardroom.netlify.app',
         'X-Title': 'AI Boardroom'
       },
-      body: JSON.stringify({
-        model,
-        messages,
-        max_tokens: maxTokens,
-        temperature: 0.7,
-        top_p: 0.9,
-        stream: false
-      })
+      body: JSON.stringify(requestBody)
     });
 
     if (!response.ok) {

@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
         response = result.content
         tokensUsed = result.tokens
       } catch (error) {
-        console.error('OpenRouter error for expert:', error)
+        console.error(`OpenRouter error for expert ${expert.name}:`, error)
         // Fallback to a simple expert response
         const expertiseArea = expert.expertise[0]?.toLowerCase() || 'their field'
         response = `Thank you for your question about "${message}". As an expert in ${expertiseArea}, I'll need to analyze this carefully. Due to a technical issue with our AI system, I'm unable to provide my full analysis right now. Please try again in a moment, and I'll share my detailed insights based on my expertise in ${expert.expertise.join(', ')}.`
