@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import experts from '@/data/experts.json'
+import { callOpenRouter, createExpertSystemPrompt } from '@/lib/openrouter'
 
 export async function POST(request: NextRequest) {
   try {
@@ -13,14 +14,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    let demoResponse = ''
+    let response = ''
     let responseRole = 'assistant'
     let expertName = ''
     let expertAvatar = ''
     let expertTitle = ''
+    let tokensUsed = 0
 
+    // Build conversation history for context
+    const conversationHistory = sessionHistory || []
+    
     if (expertId) {
-      // Individual expert response
+      // Individual expert response using OpenRouter
       const expert = experts.find(e => e.id === expertId)
       if (!expert) {
         return NextResponse.json(
@@ -32,60 +37,164 @@ export async function POST(request: NextRequest) {
       expertName = expert.name
       expertAvatar = expert.avatar
       expertTitle = expert.title
-
-      // Generate expert-specific response based on their expertise and personality
-      const expertiseArea = expert.expertise[0]?.toLowerCase() || 'their field'
-      const personalityStyle = expert.personality.style.toLowerCase()
-      
-      demoResponse = `${expert.name} (${expert.title}): Thank you for the question about "${message}". As a ${personalityStyle} professional with expertise in ${expertiseArea}, I see several key considerations. From my perspective, we should focus on strategic positioning and market opportunity. My ${expertiseArea} background suggests we need to consider both immediate tactical needs and long-term strategic implications. I recommend a balanced approach that leverages our core strengths while addressing the specific challenges you've outlined.`
-      
       responseRole = 'expert'
+
+      try {
+        // Create conversation context
+        const messages = [
+          {
+            role: 'system',
+            content: createExpertSystemPrompt(expert)
+          },
+          ...conversationHistory.map((msg: any) => ({
+            role: msg.role === 'user' ? 'user' : 'assistant',
+            content: msg.content
+          })),
+          {
+            role: 'user',
+            content: message
+          }
+        ]
+
+        const result = await callOpenRouter(messages, expertId)
+        response = result.content
+        tokensUsed = result.tokens
+      } catch (error) {
+        console.error('OpenRouter error for expert:', error)
+        // Fallback to a simple expert response
+        const expertiseArea = expert.expertise[0]?.toLowerCase() || 'their field'
+        response = `Thank you for your question about "${message}". As an expert in ${expertiseArea}, I'll need to analyze this carefully. Due to a technical issue with our AI system, I'm unable to provide my full analysis right now. Please try again in a moment, and I'll share my detailed insights based on my expertise in ${expert.expertise.join(', ')}.`
+      }
     } else if (messageType === 'moderator') {
-      // Moderator response - directs conversation to experts
+      // Moderator response - use OpenRouter with moderator prompt
       responseRole = 'moderator'
       
-      if (selectedExperts && selectedExperts.length > 0) {
-        // Moderator directing prompts to specific experts
-        const expertPrompts = selectedExperts.map((expertId: string) => {
-          const expert = experts.find(e => e.id === expertId)
-          if (!expert) return ''
-          
-          const expertiseArea = expert.expertise[0]?.toLowerCase() || 'their field'
-          return `- ${expert.name} (${expert.title}): Please analyze this from your ${expertiseArea} perspective. What strategic insights can you provide?`
-        }).filter(Boolean)
+      try {
+        const moderatorPrompt = `You are an AI boardroom moderator facilitating strategic discussions between business experts. Your role is to:
+- Acknowledge the user's question or challenge
+- Direct appropriate experts to provide their insights
+- Maintain professional, structured conversation flow
+- Synthesize multiple expert perspectives when needed
 
-        demoResponse = `Thank you for presenting this challenge: "${message}". Let me direct this to our expert board members for their specialized analysis.\n\n${expertPrompts.join('\n')}\n\nPlease provide your expert insights based on your respective areas of expertise.`
-      } else {
-        demoResponse = `Thank you for your question: "${message}". Let me facilitate a discussion among our board members to address this important point. The board acknowledges your inquiry and will provide comprehensive insights based on our collective expertise.`
+Current question/challenge: "${message}"
+
+${selectedExperts && selectedExperts.length > 0 ? 
+  `Direct this to these specific experts: ${selectedExperts.map((id: string) => {
+    const expert = experts.find(e => e.id === id)
+    return expert ? `${expert.name} (${expert.title})` : 'Expert'
+  }).join(', ')}` : 
+  'Direct this to the most relevant board members based on the topic.'
+}
+
+Provide a professional moderator response that facilitates the discussion.`
+
+        const messages = [
+          {
+            role: 'system',
+            content: moderatorPrompt
+          },
+          {
+            role: 'user', 
+            content: message
+          }
+        ]
+
+        const result = await callOpenRouter(messages)
+        response = result.content
+        tokensUsed = result.tokens
+      } catch (error) {
+        console.error('OpenRouter error for moderator:', error)
+        response = `Thank you for presenting this challenge: "${message}". Let me direct this to our expert board members for their specialized analysis. Due to a technical issue, I'm providing a standard response, but our experts will still provide valuable insights.`
       }
     } else if (messageType === 'board-synthesis') {
-      // Moderator providing final synthesis
+      // Board synthesis using OpenRouter
       responseRole = 'moderator'
       
-      if (selectedExperts && selectedExperts.length > 0) {
-        const expertNames = selectedExperts.map((expertId: string) => {
-          const expert = experts.find(e => e.id === expertId)
-          return expert?.name || 'Board Member'
-        }).join(', ')
+      try {
+        const synthesisPrompt = `You are an AI boardroom moderator providing a final synthesis of expert discussions. 
 
-        demoResponse = `**BOARD SYNTHESIS SUMMARY**\n\nBased on our comprehensive discussion of "${message}", here's our collective analysis:\n\n**Key Insights from Our Expert Team:**\n- Strategic Perspective: Focus on market positioning and competitive advantage\n- Innovation Angle: Identify disruptive opportunities and technological leverage\n- Financial Considerations: Balance risk and return for sustainable growth\n- Operational Excellence: Streamline processes for maximum efficiency\n\n**Consensus Recommendations:**\n1. Conduct thorough market analysis\n2. Develop clear implementation roadmap\n3. Establish measurable success metrics\n4. Monitor progress and adjust strategy as needed\n\n**Next Steps:**\nOur expert team recommends immediate action on the highest-impact areas while maintaining flexibility for emerging opportunities.\n\nThis synthesis represents the collective wisdom of: ${expertNames}`
-      } else {
-        demoResponse = `**BOARD SYNTHESIS**\n\nThe board has analyzed your challenge and identified key strategic areas for consideration. We recommend a comprehensive approach that balances immediate needs with long-term sustainability.`
+Original challenge: "${message}"
+
+Create a comprehensive board synthesis summary that includes:
+- Key insights from multiple expert perspectives
+- Consensus recommendations
+- Next steps
+- Strategic considerations
+
+${selectedExperts && selectedExperts.length > 0 ? 
+  `This synthesis represents insights from: ${selectedExperts.map((id: string) => {
+    const expert = experts.find(e => e.id === id)
+    return expert ? expert.name : 'Board Member'
+  }).join(', ')}` : ''
+}
+
+Provide a professional, structured synthesis response.`
+
+        const messages = [
+          ...conversationHistory.map((msg: any) => ({
+            role: msg.role === 'user' ? 'user' : 'assistant',
+            content: msg.content
+          })),
+          {
+            role: 'system',
+            content: synthesisPrompt
+          },
+          {
+            role: 'user',
+            content: `Please provide the board synthesis for: "${message}"`
+          }
+        ]
+
+        const result = await callOpenRouter(messages)
+        response = result.content
+        tokensUsed = result.tokens
+      } catch (error) {
+        console.error('OpenRouter error for synthesis:', error)
+        response = `**BOARD SYNTHESIS SUMMARY**\n\nThe board has analyzed your challenge regarding "${message}" and identified key strategic areas for consideration. Due to a technical issue with our AI system, I'm providing a standard synthesis, but the core recommendations remain valid: conduct thorough analysis, develop clear implementation plans, and maintain strategic focus.`
       }
     } else {
-      // Board group response
+      // General board response using OpenRouter
       responseRole = 'board'
-      demoResponse = `The board has analyzed your question: "${message}". As a collective, we've identified key strategic areas for consideration. We recommend a comprehensive approach that balances immediate needs with long-term sustainability. Each of our expert board members brings unique insights to this discussion.`
+      
+      try {
+        const boardPrompt = `You are representing a collective AI expert board responding to strategic business questions. Provide insights that reflect the wisdom of multiple business experts across various domains like strategy, technology, finance, marketing, and operations.
+
+Question: "${message}"
+
+Provide a comprehensive board-level response that synthesizes multiple expert perspectives.`
+
+        const messages = [
+          ...conversationHistory.map((msg: any) => ({
+            role: msg.role === 'user' ? 'user' : 'assistant',
+            content: msg.content
+          })),
+          {
+            role: 'system',
+            content: boardPrompt
+          },
+          {
+            role: 'user',
+            content: message
+          }
+        ]
+
+        const result = await callOpenRouter(messages)
+        response = result.content
+        tokensUsed = result.tokens
+      } catch (error) {
+        console.error('OpenRouter error for board:', error)
+        response = `The board has analyzed your question: "${message}". Due to a technical issue with our AI system, I'm providing a standard response. We recommend a comprehensive approach that balances immediate needs with long-term sustainability, but please try again to get our full expert analysis.`
+      }
     }
     
     return NextResponse.json({
-      response: demoResponse,
+      response,
       role: responseRole,
       expertName,
       expertAvatar,
       expertTitle,
       timestamp: new Date().toISOString(),
-      tokens: 0
+      tokens: tokensUsed
     })
 
   } catch (error) {
