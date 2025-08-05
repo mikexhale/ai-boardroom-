@@ -45,34 +45,36 @@ RECOMMENDATIONS:
 This is a demo response. Configure your OpenAI API key for real AI-generated strategic analysis.`
 
     // Save to Supabase with enhanced metadata (optional)
-    try {
-      const { data: memo, error: dbError } = await supabase
-        .from('memos')
-        .insert([
-          {
-            content,
-            created_at: new Date().toISOString(),
-            metadata: {
-              expert_count: selectedExperts.length,
-              experts: selectedExperts.map(e => e.name),
-              prompt_length: prompt.length,
-              model: 'demo',
-              tokens_used: 0,
-              flow_type: flow,
-              stages_completed: ['brief', 'round-robin', 'debate', 'synthesis']
+    if (supabase) {
+      try {
+        const { data: memo, error: dbError } = await supabase
+          .from('memos')
+          .insert([
+            {
+              content,
+              created_at: new Date().toISOString(),
+              metadata: {
+                expert_count: selectedExperts.length,
+                experts: selectedExperts.map(e => e.name),
+                prompt_length: prompt.length,
+                model: 'demo',
+                tokens_used: 0,
+                flow_type: flow,
+                stages_completed: ['brief', 'round-robin', 'debate', 'synthesis']
+              }
             }
-          }
-        ])
-        .select()
-        .single()
+          ])
+          .select()
+          .single()
 
-      if (dbError) {
-        console.error('Supabase error:', dbError)
-        // Continue even if DB save fails
+        if (dbError) {
+          console.error('Supabase error:', dbError)
+          // Continue even if DB save fails
+        }
+      } catch (dbError) {
+        console.error('Supabase connection error:', dbError)
+        // Continue even if DB is not available
       }
-    } catch (dbError) {
-      console.error('Supabase connection error:', dbError)
-      // Continue even if DB is not available
     }
 
     // Send to Slack with enhanced formatting
